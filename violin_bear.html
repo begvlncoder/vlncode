@@ -1,0 +1,669 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bear Balance - Bow Arm Position Detection</title>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js" crossorigin="anonymous"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: linear-gradient(to bottom, #87CEEB, #98FB98);
+            overflow: hidden;
+            font-family: Arial, sans-serif;
+        }
+        
+        #container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+        }
+        
+        #videoInput {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transform: scaleX(-1);
+            opacity: 0.3;
+            filter: brightness(0.7) contrast(1.2);
+        }
+        
+        #debugCanvas {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            width: 320px;
+            height: 240px;
+            transform: scaleX(-1);
+            border: 2px solid #4CAF50;
+            border-radius: 10px;
+            z-index: 10;
+            background: rgba(0,0,0,0.5);
+            display: none;
+        }
+        
+        #bearCanvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+        }
+        
+        #controls {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.7);
+            backdrop-filter: blur(20px);
+            padding: 20px;
+            border-radius: 15px;
+            color: white;
+            z-index: 100;
+            width: 300px;
+            border: 1px solid rgba(76, 175, 80, 0.3);
+        }
+        
+        #controls h3 {
+            margin-top: 0;
+            color: #4CAF50;
+            font-size: 18px;
+        }
+        
+        button {
+            background: rgba(76, 175, 80, 0.8);
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 25px;
+            cursor: pointer;
+            font-size: 14px;
+            margin: 5px 0;
+            transition: all 0.3s ease;
+            width: 100%;
+        }
+        
+        button:hover {
+            background: rgba(102, 187, 106, 0.9);
+            transform: translateY(-2px);
+        }
+        
+        .slider-container {
+            margin: 15px 0;
+        }
+        
+        input[type="range"] {
+            width: 100%;
+            margin: 8px 0;
+            -webkit-appearance: none;
+            height: 5px;
+            border-radius: 5px;
+            background: rgba(255, 255, 255, 0.2);
+            outline: none;
+        }
+        
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 15px;
+            height: 15px;
+            border-radius: 50%;
+            background: #4CAF50;
+            cursor: pointer;
+        }
+        
+        label {
+            font-size: 12px;
+            color: #C8E6C9;
+            display: block;
+            margin-bottom: 5px;
+        }
+        
+        .status {
+            margin-top: 15px;
+            padding: 10px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 10px;
+            font-size: 12px;
+            font-family: monospace;
+        }
+        
+        .status-line {
+            margin: 3px 0;
+        }
+        
+        .bear-status {
+            position: absolute;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.7);
+            backdrop-filter: blur(20px);
+            padding: 15px 30px;
+            border-radius: 30px;
+            color: white;
+            font-size: 16px;
+            border: 1px solid rgba(76, 175, 80, 0.3);
+        }
+        
+        @keyframes shake {
+            0%, 100% { transform: translateX(-50%) translateY(0); }
+            25% { transform: translateX(-49%) translateY(-2px); }
+            75% { transform: translateX(-51%) translateY(2px); }
+        }
+        
+        .bear-status.falling {
+            animation: shake 0.1s infinite;
+            border-color: #ff5722;
+            box-shadow: 0 0 20px rgba(255, 87, 34, 0.5);
+        }
+        
+        .countdown-display {
+            position: absolute;
+            bottom: 30px;
+            right: 30px;
+            background: rgba(0, 0, 0, 0.8);
+            backdrop-filter: blur(20px);
+            padding: 20px;
+            border-radius: 50%;
+            color: white;
+            font-size: 24px;
+            font-weight: bold;
+            border: 3px solid #4CAF50;
+            width: 60px;
+            height: 60px;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 200;
+        }
+        
+        .position-indicator {
+            position: absolute;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            border: 3px solid;
+            pointer-events: none;
+            display: none;
+            z-index: 15;
+        }
+        
+        #rightShoulderIndicator {
+            border-color: #2196F3;
+            background: rgba(33, 150, 243, 0.3);
+        }
+        
+        #rightElbowIndicator {
+            border-color: #FF9800;
+            background: rgba(255, 152, 0, 0.3);
+        }
+        
+        #alignmentLine {
+            position: absolute;
+            border-left: 2px dashed #4CAF50;
+            pointer-events: none;
+            display: none;
+            z-index: 14;
+        }
+    </style>
+</head>
+<body>
+    <div id="container">
+        <video id="videoInput" playsinline></video>
+        <canvas id="debugCanvas"></canvas>
+        <canvas id="bearCanvas"></canvas>
+        
+        <div id="rightShoulderIndicator" class="position-indicator"></div>
+        <div id="rightElbowIndicator" class="position-indicator"></div>
+        <div id="alignmentLine"></div>
+        
+        <div id="controls">
+            <h3>🐻 Bear Balance - Bow Arm</h3>
+            <button id="cameraBtn" onclick="toggleCamera()">Start Camera</button>
+            <button onclick="resetBear()">Reset Bear</button>
+            <button onclick="toggleDebug()">Toggle Debug View</button>
+            
+            <div class="slider-container">
+                <label>Elbow Tolerance: <span id="toleranceValue">0.08</span> (screen width)</label>
+                <input type="range" id="tolerance" min="0.03" max="0.15" step="0.01" value="0.08" 
+                       oninput="updateTolerance(this.value)">
+            </div>
+            
+            <div class="slider-container">
+                <label>Fall Speed: <span id="fallSpeedValue">3</span></label>
+                <input type="range" id="fallSpeed" min="1" max="10" step="1" value="3" 
+                       oninput="updateFallSpeed(this.value)">
+            </div>
+            
+            <div class="status">
+                <div class="status-line">Status: <span id="statusText">Ready</span></div>
+                <div class="status-line">Right Shoulder X: <span id="rightShoulderX">-</span></div>
+                <div class="status-line">Right Elbow X: <span id="rightElbowX">-</span></div>
+                <div class="status-line">Deviation: <span id="deviation">-</span></div>
+                <div class="status-line">Bow Position: <span id="positionText">-</span></div>
+            </div>
+        </div>
+        
+        <div class="bear-status" id="bearStatus">
+            🐻 Bear: <span id="bearState">Balanced</span>
+        </div>
+        
+        <div class="countdown-display" id="countdownDisplay">5</div>
+    </div>
+
+    <script>
+        // Global variables
+        let video = document.getElementById('videoInput');
+        let debugCanvas = document.getElementById('debugCanvas');
+        let debugCtx = debugCanvas.getContext('2d');
+        let bearCanvas = document.getElementById('bearCanvas');
+        let ctx = bearCanvas.getContext('2d');
+        
+        let pose = null;
+        let camera = null;
+        let cameraRunning = false;
+        let elbowTolerance = 0.08; // 8% of screen width
+        let fallSpeed = 3;
+        let detectionEnabled = false;
+        let debugVisible = false;
+        
+        // Bear and ball properties
+        const bear = {
+            x: 0,
+            y: 0,
+            size: 150,
+            rotation: 0,
+            isBalanced: true,
+            isFalling: false,
+            fallY: 0,
+            fallRotation: 0,
+            wiggle: 0
+        };
+        
+        const ball = {
+            x: 0,
+            y: 0,
+            size: 120,
+            rotation: 0
+        };
+        
+
+        
+        // Initialize positions
+        function initializePositions() {
+            ball.x = bearCanvas.width / 2;
+            ball.y = bearCanvas.height - 200;
+            bear.x = ball.x;
+            bear.y = ball.y - ball.size - 30;
+        }
+        
+        // Draw the balance ball
+        function drawBall() {
+            ctx.save();
+            ctx.translate(ball.x, ball.y);
+            ctx.rotate(ball.rotation);
+            
+            // Ball shadow
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.2)';
+            ctx.beginPath();
+            ctx.ellipse(0, ball.size + 10, ball.size * 1.2, 15, 0, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Main ball
+            const gradient = ctx.createRadialGradient(-20, -20, 10, 0, 0, ball.size);
+            gradient.addColorStop(0, '#ff6b35');
+            gradient.addColorStop(0.7, '#ff3d17');
+            gradient.addColorStop(1, '#d32f2f');
+            ctx.fillStyle = gradient;
+            ctx.beginPath();
+            ctx.arc(0, 0, ball.size, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Ball highlights
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
+            ctx.beginPath();
+            ctx.arc(-15, -15, 12, 0, Math.PI * 2);
+            ctx.fill();
+            
+            ctx.restore();
+        }
+        
+        // Draw the bear
+        function drawBear() {
+            if (bear.isFalling) {
+                bear.fallY += fallSpeed;
+                bear.fallRotation += 0.2;
+                bear.y = ball.y - ball.size - 30 + bear.fallY;
+                bear.rotation = bear.fallRotation;
+            } else if (!bear.isBalanced) {
+                // Wobbling on the edge
+                bear.wiggle += 0.3;
+                bear.rotation = Math.sin(bear.wiggle) * 0.3;
+                bear.x = ball.x + Math.sin(bear.wiggle) * 15;
+            } else {
+                // Stable and balanced
+                bear.rotation = 0;
+                bear.x = ball.x;
+                bear.wiggle = 0;
+            }
+            
+            ctx.save();
+            ctx.translate(bear.x, bear.y);
+            ctx.rotate(bear.rotation);
+            
+            // Bear body
+            ctx.fillStyle = '#8D6E63';
+            ctx.beginPath();
+            ctx.arc(0, 0, bear.size * 0.6, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Bear head
+            ctx.fillStyle = '#A1887F';
+            ctx.beginPath();
+            ctx.arc(0, -bear.size * 0.4, bear.size * 0.4, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Bear ears
+            ctx.fillStyle = '#8D6E63';
+            ctx.beginPath();
+            ctx.arc(-bear.size * 0.25, -bear.size * 0.6, bear.size * 0.15, 0, Math.PI * 2);
+            ctx.arc(bear.size * 0.25, -bear.size * 0.6, bear.size * 0.15, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Bear face
+            ctx.fillStyle = '#3E2723';
+            // Eyes
+            ctx.beginPath();
+            ctx.arc(-bear.size * 0.1, -bear.size * 0.45, 5, 0, Math.PI * 2);
+            ctx.arc(bear.size * 0.1, -bear.size * 0.45, 5, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Nose
+            ctx.beginPath();
+            ctx.arc(0, -bear.size * 0.35, 6, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Arms (if balanced, arms out for balance)
+            if (bear.isBalanced) {
+                ctx.strokeStyle = '#8D6E63';
+                ctx.lineWidth = 12;
+                ctx.lineCap = 'round';
+                ctx.beginPath();
+                ctx.moveTo(-bear.size * 0.5, -bear.size * 0.1);
+                ctx.lineTo(-bear.size * 0.8, -bear.size * 0.3);
+                ctx.moveTo(bear.size * 0.5, -bear.size * 0.1);
+                ctx.lineTo(bear.size * 0.8, -bear.size * 0.3);
+                ctx.stroke();
+            }
+            
+            ctx.restore();
+        }
+        
+        function onResults(results) {
+            // Draw debug visualization
+            debugCtx.save();
+            debugCtx.clearRect(0, 0, debugCanvas.width, debugCanvas.height);
+            debugCtx.drawImage(results.image, 0, 0, debugCanvas.width, debugCanvas.height);
+            
+            if (results.poseLandmarks) {
+                // Draw skeleton
+                drawConnectors(debugCtx, results.poseLandmarks, POSE_CONNECTIONS,
+                    {color: '#00FF00', lineWidth: 2});
+                drawLandmarks(debugCtx, results.poseLandmarks,
+                    {color: '#FF0000', lineWidth: 1, radius: 3});
+                
+                // Get key landmarks
+                const rightShoulder = results.poseLandmarks[12]; // Right shoulder
+                const rightElbow = results.poseLandmarks[14]; // Right elbow
+                
+                if (rightShoulder && rightElbow && detectionEnabled) {
+                    // Update position indicators
+                    updatePositionIndicators(rightShoulder, rightElbow);
+                    
+                    // Calculate horizontal deviation
+                    const horizontalDeviation = Math.abs(rightElbow.x - rightShoulder.x);
+                    
+                    // Update status display
+                    document.getElementById('rightShoulderX').textContent = rightShoulder.x.toFixed(3);
+                    document.getElementById('rightElbowX').textContent = rightElbow.x.toFixed(3);
+                    document.getElementById('deviation').textContent = horizontalDeviation.toFixed(3);
+                    
+                    // Check bow arm position
+                    if (horizontalDeviation > elbowTolerance) {
+                        // Elbow is too far out
+                        document.getElementById('positionText').textContent = 'Elbow OUT';
+                        if (bear.isBalanced) {
+                            startWobbling();
+                        }
+                    } else {
+                        // Good bow arm position
+                        document.getElementById('positionText').textContent = 'Good Position';
+                        if (!bear.isFalling) {
+                            bear.isBalanced = true;
+                            document.getElementById('bearState').textContent = 'Balanced';
+                            document.getElementById('bearStatus').classList.remove('falling');
+                        }
+                    }
+                    
+                    // Draw tolerance line on debug canvas
+                    const toleranceX = rightShoulder.x + elbowTolerance;
+                    debugCtx.strokeStyle = '#4CAF50';
+                    debugCtx.lineWidth = 2;
+                    debugCtx.setLineDash([5, 5]);
+                    debugCtx.beginPath();
+                    debugCtx.moveTo(toleranceX * debugCanvas.width, 0);
+                    debugCtx.lineTo(toleranceX * debugCanvas.width, debugCanvas.height);
+                    debugCtx.stroke();
+                    debugCtx.setLineDash([]);
+                }
+            }
+            
+            debugCtx.restore();
+        }
+        
+        function updatePositionIndicators(rightShoulder, rightElbow) {
+            // Update shoulder indicator
+            const shoulderIndicator = document.getElementById('rightShoulderIndicator');
+            shoulderIndicator.style.display = 'block';
+            shoulderIndicator.style.left = (window.innerWidth - (rightShoulder.x * window.innerWidth)) + 'px';
+            shoulderIndicator.style.top = (rightShoulder.y * window.innerHeight) + 'px';
+            
+            // Update elbow indicator
+            const elbowIndicator = document.getElementById('rightElbowIndicator');
+            elbowIndicator.style.display = 'block';
+            elbowIndicator.style.left = (window.innerWidth - (rightElbow.x * window.innerWidth)) + 'px';
+            elbowIndicator.style.top = (rightElbow.y * window.innerHeight) + 'px';
+            
+            // Update alignment line
+            const alignmentLine = document.getElementById('alignmentLine');
+            alignmentLine.style.display = 'block';
+            alignmentLine.style.left = (window.innerWidth - (rightShoulder.x * window.innerWidth)) + 'px';
+            alignmentLine.style.top = (rightShoulder.y * window.innerHeight) + 'px';
+            alignmentLine.style.height = Math.abs((rightElbow.y - rightShoulder.y) * window.innerHeight) + 'px';
+        }
+        
+        function startDelayedDetection(delaySeconds = 5) {
+            detectionEnabled = false;
+            let timeLeft = delaySeconds;
+            
+            const countdownDisplay = document.getElementById('countdownDisplay');
+            countdownDisplay.style.display = 'flex';
+            countdownDisplay.textContent = timeLeft;
+            
+            const countdownInterval = setInterval(() => {
+                timeLeft--;
+                countdownDisplay.textContent = timeLeft;
+                
+                if (timeLeft <= 0) {
+                    clearInterval(countdownInterval);
+                    detectionEnabled = true;
+                    countdownDisplay.style.display = 'none';
+                    if (cameraRunning) {
+                        document.getElementById('statusText').textContent = 'Tracking bow arm position';
+                    }
+                }
+            }, 1000);
+        }
+        
+        let wobbleTimeout;
+        function startWobbling() {
+            bear.isBalanced = false;
+            bear.isFalling = false;
+            document.getElementById('bearState').textContent = 'Wobbling...';
+            document.getElementById('bearStatus').classList.add('falling');
+            
+            // Clear any existing timeout
+            clearTimeout(wobbleTimeout);
+            
+            // Start falling after 2 seconds of wobbling
+            wobbleTimeout = setTimeout(() => {
+                if (!bear.isBalanced) {
+                    bear.isFalling = true;
+                    document.getElementById('bearState').textContent = 'Falling!';
+                }
+            }, 2000);
+        }
+        
+        function resetBear() {
+            bear.isBalanced = true;
+            bear.isFalling = false;
+            bear.fallY = 0;
+            bear.fallRotation = 0;
+            bear.rotation = 0;
+            bear.wiggle = 0;
+            clearTimeout(wobbleTimeout);
+            
+            initializePositions();
+            
+            document.getElementById('bearState').textContent = 'Balanced';
+            document.getElementById('bearStatus').classList.remove('falling');
+            
+            // Start delay after reset only if camera is running
+            if (cameraRunning) {
+                document.getElementById('statusText').textContent = 'Preparing to track...';
+                startDelayedDetection(5);
+            }
+        }
+        
+        async function toggleCamera() {
+            if (!cameraRunning) {
+                await startCamera();
+            } else {
+                stopCamera();
+            }
+        }
+        
+        async function startCamera() {
+            try {
+                document.getElementById('statusText').textContent = 'Initializing MediaPipe...';
+                
+                // Initialize MediaPipe Pose
+                pose = new Pose({
+                    locateFile: (file) => {
+                        return `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`;
+                    }
+                });
+                
+                pose.setOptions({
+                    modelComplexity: 1,
+                    smoothLandmarks: true,
+                    minDetectionConfidence: 0.5,
+                    minTrackingConfidence: 0.5
+                });
+                
+                pose.onResults(onResults);
+                
+                document.getElementById('statusText').textContent = 'Requesting camera...';
+                
+                camera = new Camera(video, {
+                    onFrame: async () => {
+                        await pose.send({image: video});
+                    },
+                    width: 640,
+                    height: 480
+                });
+                
+                await camera.start();
+                cameraRunning = true;
+                document.getElementById('cameraBtn').textContent = 'Stop Camera';
+                document.getElementById('statusText').textContent = 'Preparing to track...';
+                
+                // Enable detection after 5 seconds with countdown
+                startDelayedDetection(5);
+                
+            } catch (error) {
+                console.error('Camera error:', error);
+                document.getElementById('statusText').textContent = `Error: ${error.message}`;
+            }
+        }
+        
+        function stopCamera() {
+            if (camera) {
+                camera.stop();
+                camera = null;
+            }
+            
+            cameraRunning = false;
+            detectionEnabled = false;
+            document.getElementById('cameraBtn').textContent = 'Start Camera';
+            document.getElementById('statusText').textContent = 'Camera stopped';
+            
+            // Hide indicators
+            document.getElementById('rightShoulderIndicator').style.display = 'none';
+            document.getElementById('rightElbowIndicator').style.display = 'none';
+            document.getElementById('alignmentLine').style.display = 'none';
+        }
+        
+        function toggleDebug() {
+            debugVisible = !debugVisible;
+            document.getElementById('debugCanvas').style.display = debugVisible ? 'block' : 'none';
+        }
+        
+        function updateTolerance(value) {
+            elbowTolerance = parseFloat(value);
+            document.getElementById('toleranceValue').textContent = value;
+        }
+        
+        function updateFallSpeed(value) {
+            fallSpeed = parseInt(value);
+            document.getElementById('fallSpeedValue').textContent = value;
+        }
+        
+        function animate() {
+            ctx.clearRect(0, 0, bearCanvas.width, bearCanvas.height);
+            
+            drawBall();
+            drawBear();
+            
+            // Reset bear if it falls off screen
+            if (bear.y > bearCanvas.height + 200) {
+                resetBear();
+            }
+            
+            requestAnimationFrame(animate);
+        }
+        
+        function resizeCanvas() {
+            bearCanvas.width = window.innerWidth;
+            bearCanvas.height = window.innerHeight;
+            debugCanvas.width = 320;
+            debugCanvas.height = 240;
+            
+            initializePositions();
+        }
+        
+        // Initialize
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+        animate();
+    </script>
+</body>
+</html>
